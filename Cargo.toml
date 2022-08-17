@@ -1,0 +1,20 @@
+[package]
+name = "seashell"
+version = "0.1.0"
+authors = ["Joao Freitas"]
+edition = "2021"
+description = "Lightweight audio player"
+license = "MIT"
+keywords = ["player", "audio", "music"]
+categories = ["multimedia::audio"]
+resolver = "2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.iced]
+version = "0.4"
+default-features = false
+features = ["glow", "pure"]
+
+[dependencies.kira]
+version = "0.6.0"
