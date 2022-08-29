@@ -18,3 +18,6 @@ features = ["glow", "pure"]
 
 [dependencies.kira]
 version = "0.6.0"
+
+[dependencies.dirs]
+version = "4.0"

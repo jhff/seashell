@@ -31,6 +31,7 @@ pub struct Player {
     manager: Option<AudioManager<CpalBackend>>,
     volume: f64,
     status: AudioStatus,
+    music: String,
 }
 
 impl Default for Player {
@@ -39,11 +40,16 @@ impl Default for Player {
             manager: None,
             volume: 100.0,
             status: AudioStatus::None,
+            music: String::new(),
         }
     }
 }
 
 impl Player {
+    pub fn set_music(&mut self, music: &str) {
+        self.music = music.to_string();
+    }
+
     pub fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::Play => self.play(),
@@ -74,6 +80,7 @@ impl Player {
         let volume_text = text(self.volume.to_string());
         let volume = row()
             .push(slider)
+            .spacing(5)
             .push(volume_text)
             .align_items(Alignment::Center);
 
@@ -83,12 +90,7 @@ impl Player {
             .push(volume)
             .align_items(Alignment::Center);
 
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x()
-            .center_y()
-            .into()
+        container(content).center_x().center_y().into()
     }
 
     fn play(&mut self) {
@@ -105,25 +107,24 @@ impl Player {
                 }
             }
         } else {
-            // Initialize audio manager
-            self.manager =
-                Some(AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap());
-
             // Create sound data
-            let sound_data = StreamingSoundData::from_file(
-                "assets/music.mp3",
-                StreamingSoundSettings::default(),
-            )
-            .unwrap();
+            if let Ok(sound_data) =
+                StreamingSoundData::from_file(&self.music, StreamingSoundSettings::default())
+            {
+                // Initialize audio manager
+                self.manager = Some(
+                    AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap(),
+                );
 
-            // Play sound
-            if let Some(manager) = self.manager.as_mut() {
-                manager.play(sound_data);
+                // Play sound
+                if let Some(manager) = self.manager.as_mut() {
+                    manager.play(sound_data);
 
-                let mut sound = manager.main_track();
-                sound.set_volume(self.volume / 100.0, Tween::default());
+                    let mut sound = manager.main_track();
+                    sound.set_volume(self.volume / 100.0, Tween::default());
 
-                self.status = AudioStatus::Playing;
+                    self.status = AudioStatus::Playing;
+                }
             }
         }
     }

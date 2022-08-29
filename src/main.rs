@@ -1,7 +1,8 @@
+mod explorer;
 mod player;
 
-use iced::executor;
-use iced::pure::{Application, Element};
+use iced::pure::{column, container, Application, Element};
+use iced::{executor, Alignment};
 use iced::{Command, Settings};
 
 pub fn main() -> iced::Result {
@@ -10,10 +11,12 @@ pub fn main() -> iced::Result {
 
 struct Seashell {
     player: player::Player,
+    explorer: explorer::Explorer,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    Explorer(explorer::Message),
     Player(player::Message),
 }
 
@@ -26,6 +29,7 @@ impl Application for Seashell {
         (
             Seashell {
                 player: player::Player::default(),
+                explorer: explorer::Explorer::default(),
             },
             Command::none(),
         )
@@ -37,11 +41,27 @@ impl Application for Seashell {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
+            Message::Explorer(msg) => {
+                match &msg {
+                    explorer::Message::Selected(selected) => match selected {
+                        explorer::Selected::File(file) => self.player.set_music(file),
+                        explorer::Selected::Dir(_) => {}
+                    },
+                    explorer::Message::InputChanged(_) | explorer::Message::BackDir => {}
+                }
+
+                self.explorer.update(msg).map(Message::Explorer)
+            }
             Message::Player(msg) => self.player.update(msg).map(Message::Player),
         }
     }
 
     fn view(&self) -> Element<Message> {
-        self.player.view().map(Message::Player)
+        let content = column()
+            .push(self.player.view().map(Message::Player))
+            .push(self.explorer.view().map(Message::Explorer))
+            .align_items(Alignment::Center);
+
+        container(content).center_x().center_y().into()
     }
 }
