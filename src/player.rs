@@ -3,14 +3,37 @@ use iced::{Alignment, Command, Length};
 
 use kira::manager::backend::cpal::CpalBackend;
 use kira::manager::{AudioManager, AudioManagerSettings, MainPlaybackState};
-use kira::sound::streaming::{StreamingSoundData, StreamingSoundSettings};
+use kira::sound::static_sound::PlaybackState;
+use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle, StreamingSoundSettings};
+use kira::sound::FromFileError;
 use kira::tween::Tween;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AudioStatus {
     Playing,
+    Pausing,
     Paused,
+    Stopping,
+    Stopped,
     None,
+}
+
+impl Default for AudioStatus {
+    fn default() -> Self {
+        AudioStatus::None
+    }
+}
+
+impl From<PlaybackState> for AudioStatus {
+    fn from(state: PlaybackState) -> Self {
+        match state {
+            PlaybackState::Playing => AudioStatus::Playing,
+            PlaybackState::Pausing => AudioStatus::Pausing,
+            PlaybackState::Paused => AudioStatus::Paused,
+            PlaybackState::Stopping => AudioStatus::Stopping,
+            PlaybackState::Stopped => AudioStatus::Stopped,
+        }
+    }
 }
 
 impl std::fmt::Display for AudioStatus {
@@ -29,8 +52,9 @@ pub enum Message {
 
 pub struct Player {
     manager: Option<AudioManager<CpalBackend>>,
+    handle: Option<StreamingSoundHandle<FromFileError>>,
     volume: f64,
-    status: AudioStatus,
+    status: AudioStatus, // TODO
     music: String,
 }
 
@@ -38,6 +62,7 @@ impl Default for Player {
     fn default() -> Self {
         Self {
             manager: None,
+            handle: None,
             volume: 100.0,
             status: AudioStatus::None,
             music: String::new(),
@@ -71,7 +96,7 @@ impl Player {
             .push(stop_button)
             .align_items(Alignment::Center);
 
-        let status = text(self.status.to_string());
+        let status = text(self.state().to_string());
         let info = row().push(status).align_items(Alignment::Center);
 
         let slider = slider(0.0..=100.0, self.volume, Message::VolumeChanged)
@@ -94,64 +119,61 @@ impl Player {
     }
 
     fn play(&mut self) {
-        if let Some(manager) = self.manager.as_mut() {
-            match manager.state() {
-                MainPlaybackState::Playing => {}
-                MainPlaybackState::Pausing | MainPlaybackState::Paused => {
-                    manager.resume(Tween::default());
-
-                    let mut sound = manager.main_track();
-                    sound.set_volume(self.volume / 100.0, Tween::default());
-
-                    self.status = AudioStatus::Playing;
+        match self.state() {
+            AudioStatus::Playing => {}
+            AudioStatus::Pausing | AudioStatus::Paused => {
+                if let Some(handle) = self.handle.as_mut() {
+                    handle.resume(Tween::default());
                 }
             }
-        } else {
-            // Create sound data
-            if let Ok(sound_data) =
-                StreamingSoundData::from_file(&self.music, StreamingSoundSettings::default())
-            {
-                // Initialize audio manager
-                self.manager = Some(
-                    AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap(),
-                );
+            AudioStatus::Stopping | AudioStatus::Stopped | AudioStatus::None => {
+                if self.manager.is_none() {
+                    // Initialize audio manager
+                    self.manager = Some(
+                        AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap(),
+                    );
+                }
 
-                // Play sound
-                if let Some(manager) = self.manager.as_mut() {
-                    manager.play(sound_data);
-
-                    let mut sound = manager.main_track();
-                    sound.set_volume(self.volume / 100.0, Tween::default());
-
-                    self.status = AudioStatus::Playing;
+                // Create sound data
+                if let Ok(sound_data) =
+                    StreamingSoundData::from_file(&self.music, StreamingSoundSettings::default())
+                {
+                    if let Some(manager) = self.manager.as_mut() {
+                        // Play sound
+                        if let Ok(mut handle) = manager.play(sound_data) {
+                            handle.set_volume(self.volume / 100.0, Tween::default());
+                            self.handle = Some(handle);
+                        }
+                    }
                 }
             }
         }
     }
 
     fn pause(&mut self) {
-        if let Some(manager) = self.manager.as_mut() {
-            if matches!(manager.state(), MainPlaybackState::Playing) {
-                manager.pause(Tween::default());
-                self.status = AudioStatus::Paused;
-            }
+        if let Some(handle) = self.handle.as_mut() {
+            handle.pause(Tween::default());
         }
     }
 
     fn set_volume(&mut self, volume: f64) {
         self.volume = volume;
 
-        if let Some(manager) = self.manager.as_mut() {
-            if matches!(manager.state(), MainPlaybackState::Playing) {
-                let mut sound = manager.main_track();
-                sound.set_volume(self.volume / 100.0, Tween::default());
-            }
+        if let Some(handle) = self.handle.as_mut() {
+            handle.set_volume(self.volume / 100.0, Tween::default());
         }
     }
 
     fn stop(&mut self) {
-        // Reset manager
-        self.manager = None;
-        self.status = AudioStatus::None;
+        if let Some(handle) = self.handle.as_mut() {
+            handle.stop(Tween::default());
+        }
+    }
+
+    fn state(&self) -> AudioStatus {
+        self.handle
+            .as_ref()
+            .map(|handle| handle.state().into())
+            .unwrap_or_default()
     }
 }
