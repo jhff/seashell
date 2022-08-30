@@ -2,8 +2,7 @@ use iced::pure::{button, column, container, row, slider, text, Element};
 use iced::{Alignment, Command, Length};
 
 use kira::manager::backend::cpal::CpalBackend;
-use kira::manager::{AudioManager, AudioManagerSettings, MainPlaybackState};
-use kira::sound::static_sound::PlaybackState;
+use kira::manager::{AudioManager, AudioManagerSettings};
 use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle, StreamingSoundSettings};
 use kira::sound::FromFileError;
 use kira::tween::Tween;
@@ -11,9 +10,7 @@ use kira::tween::Tween;
 #[derive(Debug, Clone, Copy)]
 pub enum AudioStatus {
     Playing,
-    Pausing,
     Paused,
-    Stopping,
     Stopped,
     None,
 }
@@ -21,18 +18,6 @@ pub enum AudioStatus {
 impl Default for AudioStatus {
     fn default() -> Self {
         AudioStatus::None
-    }
-}
-
-impl From<PlaybackState> for AudioStatus {
-    fn from(state: PlaybackState) -> Self {
-        match state {
-            PlaybackState::Playing => AudioStatus::Playing,
-            PlaybackState::Pausing => AudioStatus::Pausing,
-            PlaybackState::Paused => AudioStatus::Paused,
-            PlaybackState::Stopping => AudioStatus::Stopping,
-            PlaybackState::Stopped => AudioStatus::Stopped,
-        }
     }
 }
 
@@ -54,7 +39,7 @@ pub struct Player {
     manager: Option<AudioManager<CpalBackend>>,
     handle: Option<StreamingSoundHandle<FromFileError>>,
     volume: f64,
-    status: AudioStatus, // TODO
+    status: AudioStatus,
     music: String,
 }
 
@@ -119,21 +104,22 @@ impl Player {
     }
 
     fn play(&mut self) {
+        if self.manager.is_none() {
+            // Initialize audio manager
+            self.manager =
+                Some(AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap());
+        }
+
         match self.state() {
             AudioStatus::Playing => {}
-            AudioStatus::Pausing | AudioStatus::Paused => {
+            AudioStatus::Paused => {
                 if let Some(handle) = self.handle.as_mut() {
                     handle.resume(Tween::default());
+
+                    self.status = AudioStatus::Playing;
                 }
             }
-            AudioStatus::Stopping | AudioStatus::Stopped | AudioStatus::None => {
-                if self.manager.is_none() {
-                    // Initialize audio manager
-                    self.manager = Some(
-                        AudioManager::<CpalBackend>::new(AudioManagerSettings::default()).unwrap(),
-                    );
-                }
-
+            AudioStatus::Stopped | AudioStatus::None => {
                 // Create sound data
                 if let Ok(sound_data) =
                     StreamingSoundData::from_file(&self.music, StreamingSoundSettings::default())
@@ -143,6 +129,8 @@ impl Player {
                         if let Ok(mut handle) = manager.play(sound_data) {
                             handle.set_volume(self.volume / 100.0, Tween::default());
                             self.handle = Some(handle);
+
+                            self.status = AudioStatus::Playing;
                         }
                     }
                 }
@@ -153,6 +141,8 @@ impl Player {
     fn pause(&mut self) {
         if let Some(handle) = self.handle.as_mut() {
             handle.pause(Tween::default());
+
+            self.status = AudioStatus::Paused;
         }
     }
 
@@ -167,13 +157,12 @@ impl Player {
     fn stop(&mut self) {
         if let Some(handle) = self.handle.as_mut() {
             handle.stop(Tween::default());
+
+            self.status = AudioStatus::Stopped;
         }
     }
 
     fn state(&self) -> AudioStatus {
-        self.handle
-            .as_ref()
-            .map(|handle| handle.state().into())
-            .unwrap_or_default()
+        self.status
     }
 }
