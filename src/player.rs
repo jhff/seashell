@@ -71,13 +71,16 @@ impl Player {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let play_button = button("Play").on_press(Message::Play);
-        let pause_button = button("Pause").on_press(Message::Pause);
+        let play_pause_button = match self.state() {
+            AudioStatus::Playing => button("Pause").on_press(Message::Pause),
+            AudioStatus::Paused | AudioStatus::Stopped | AudioStatus::None => {
+                button("Play").on_press(Message::Play)
+            }
+        };
         let stop_button = button("Stop").on_press(Message::Stop);
 
         let buttons = row()
-            .push(play_button)
-            .push(pause_button)
+            .push(play_pause_button)
             .push(stop_button)
             .align_items(Alignment::Center);
 
