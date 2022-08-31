@@ -1,8 +1,9 @@
-// extern crate dirs;
+use std::path::Path;
 
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+mod dir;
+mod format;
+
+use dir::{DirContent, DirContents};
 
 use iced::pure::{button, column, container, row, scrollable, text_input, Element};
 use iced::{Alignment, Command};
@@ -21,11 +22,9 @@ pub enum Selected {
 }
 
 pub struct Explorer {
-    dirs: Vec<PathBuf>,
     input: String,
+    dirs: DirContents,
 }
-
-static SUPPORTED_FORMATS: &[&str] = &["mp3", "flac", "wav", "ogg"];
 
 impl Default for Explorer {
     fn default() -> Self {
@@ -33,12 +32,12 @@ impl Default for Explorer {
 
         let dirs = audio_dir
             .as_ref()
-            .and_then(|dir| explore(dir).ok())
+            .map(|dir| DirContents::new(dir))
             .unwrap_or_default();
 
         Self {
-            dirs,
             input: audio_dir.unwrap_or_default(),
+            dirs,
         }
     }
 }
@@ -48,18 +47,12 @@ impl Explorer {
         match message {
             Message::InputChanged(input) => {
                 self.input = input;
-
-                if let Ok(dirs) = explore(&self.input) {
-                    self.dirs = dirs;
-                }
+                self.dirs = DirContents::new(&self.input);
             }
             Message::Selected(selected) => match selected {
                 Selected::Dir(dir) => {
                     self.input = dir;
-
-                    if let Ok(dirs) = explore(&self.input) {
-                        self.dirs = dirs;
-                    }
+                    self.dirs = DirContents::new(&self.input);
                 }
                 Selected::File(_) => {
                     // do nothing
@@ -72,10 +65,7 @@ impl Explorer {
                 if let Some(back_dir) = path.parent() {
                     if let Some(back_dir) = back_dir.as_os_str().to_str() {
                         self.input = back_dir.to_string();
-
-                        if let Ok(dirs) = explore(&self.input) {
-                            self.dirs = dirs;
-                        }
+                        self.dirs = DirContents::new(&self.input);
                     }
                 }
             }
@@ -95,25 +85,20 @@ impl Explorer {
 
         let mut results = column().spacing(10);
 
-        for dir in &self.dirs {
-            let full_path = dir.as_path();
-
-            if let Some(file) = full_path.file_name() {
-                if let Some(file) = file.to_str() {
-                    if let Some(full_dir) = dir.as_path().to_str() {
-                        match (full_path.is_file(), full_path.is_dir()) {
-                            (true, false) => {
-                                results = results.push(container(button(file).on_press(
-                                    Message::Selected(Selected::File(full_dir.to_string().clone())),
-                                )))
-                            }
-                            (false, true) => {
-                                results = results.push(container(button(file).on_press(
-                                    Message::Selected(Selected::Dir(full_dir.to_string().clone())),
-                                )))
-                            }
-                            _ => {}
-                        };
+        for dir in self.dirs.list().iter() {
+            if let Some(full_path) = dir.path().to_str() {
+                if let Some(name) = dir.name() {
+                    match dir {
+                        DirContent::Dir(_) => {
+                            results = results.push(container(button(name).on_press(
+                                Message::Selected(Selected::Dir(full_path.to_string().clone())),
+                            )))
+                        }
+                        DirContent::AudioFile(_) => {
+                            results = results.push(container(button(name).on_press(
+                                Message::Selected(Selected::File(full_path.to_string().clone())),
+                            )))
+                        }
                     }
                 }
             }
@@ -125,34 +110,4 @@ impl Explorer {
 
         container(content).center_x().center_y().into()
     }
-}
-
-fn explore(dir: &str) -> Result<Vec<PathBuf>, io::Error> {
-    let mut entries = fs::read_dir(dir)?
-        .filter(|res| {
-            res.as_ref()
-                .map(|e| {
-                    if let Ok(metadata) = e.metadata() {
-                        if metadata.is_dir() {
-                            return true;
-                        } else {
-                            if let Some(extension) = e.path().extension() {
-                                return is_audio_file(extension);
-                            }
-                        }
-                    }
-                    false
-                })
-                .unwrap()
-        })
-        .map(|res| res.map(|e| e.path()))
-        .collect::<Result<Vec<PathBuf>, io::Error>>()?;
-
-    entries.sort();
-
-    Ok(entries)
-}
-
-fn is_audio_file(extension: &OsStr) -> bool {
-    SUPPORTED_FORMATS.iter().any(|&format| format == extension)
 }
